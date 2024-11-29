@@ -2,9 +2,3 @@ streamlit
 requests
 pandas
 plotly
-prophet
-folium
-streamlit-folium
-kaleido
-psutil
-orca
