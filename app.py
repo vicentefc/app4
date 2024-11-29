@@ -1,61 +1,94 @@
-import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
+import streamlit as st
 import plotly.express as px
 
-def obtener_terremotos(rango_inicio, rango_fin, min_magnitud):
-    try:
-        url = f"https://earthquake.usgs.gov/fdsnws/event/1/query"
-        params = {
-            "format": "geojson",
-            "starttime": rango_inicio,
-            "endtime": rango_fin,
-            "minmagnitude": min_magnitud
-        }
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        datos = response.json()["features"]
-        terremotos = []
-        for evento in datos:
-            propiedades = evento["properties"]
-            coordenadas = evento["geometry"]["coordinates"]
-            terremotos.append({
-                "Magnitud": propiedades.get("mag"),
-                "Lugar": propiedades.get("place"),
-                "Fecha": pd.to_datetime(propiedades.get("time"), unit="ms"),
-                "Longitud": coordenadas[0],
-                "Latitud": coordenadas[1],
-                "Profundidad (km)": coordenadas[2],
-            })
-        return pd.DataFrame(terremotos)
-    except Exception as e:
-        st.error(f"Error al obtener datos: {e}")
-        return pd.DataFrame()
-
-st.title("Actividad Sísmica Global")
-
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    rango_inicio = st.date_input("Fecha de inicio", value=pd.Timestamp("2023-01-01"))
-    rango_fin = st.date_input("Fecha de fin", value=pd.Timestamp("2023-12-31"))
-    min_magnitud = st.slider("Magnitud mínima", min_value=0.0, max_value=10.0, value=4.0, step=0.1)
-
-if st.button("Obtener datos"):
-    df = obtener_terremotos(rango_inicio, rango_fin, min_magnitud)
-    if not df.empty:
-        st.success(f"Se encontraron {len(df)} terremotos.")
-        fig = px.scatter_mapbox(
-            df,
-            lat="Latitud",
-            lon="Longitud",
-            size="Magnitud",
-            hover_data=["Lugar", "Fecha", "Profundidad (km)"],
-            mapbox_style="open-street-map",  # Garantiza compatibilidad universal del mapa
-            title="Mapa de Actividad Sísmica",
-            zoom=1,
-        )
-        fig.update_traces(marker=dict(color="red", opacity=0.6))  # Círculos rojos
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df, use_container_width=True)
+def get_crypto_data(cryptos, currencies):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(cryptos)}&vs_currencies={','.join(currencies)}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()
     else:
-        st.warning("No se encontraron terremotos en el rango seleccionado.")
+        return {}
+
+def process_data(data):
+    processed = []
+    for crypto, values in data.items():
+        for currency, price in values.items():
+            processed.append({"Crypto": crypto, "Currency": currency, "Price": price})
+    return pd.DataFrame(processed)
+
+def main():
+    st.set_page_config(page_title="Dashboard de Criptomonedas", layout="wide")
+    st.title("💰 Dashboard de Criptomonedas")
+
+    st.sidebar.header("Configuraciones")
+
+    if st.sidebar.button("Seleccionar criptomonedas comunes"):
+        default_cryptos = "bitcoin,ethereum,cardano,solana"
+    else:
+        default_cryptos = "bitcoin,ethereum"
+    
+    if st.sidebar.button("Seleccionar monedas fiat comunes"):
+        default_currencies = "usd,eur,gbp"
+    else:
+        default_currencies = "usd,eur"
+
+    cryptos = st.sidebar.text_area("ids de criptomonedas (separadas por coma)", value=default_cryptos)
+    currencies = st.sidebar.text_area("Monedas fiat (separadas por coma)", value=default_currencies)
+
+    crypto_list = cryptos.split(",")
+    currency_list = currencies.split(",")
+
+    if st.sidebar.button("Obtener datos"):
+        data = get_crypto_data(crypto_list, currency_list)
+        if data:
+            df = process_data(data)
+
+            st.subheader("📊 Datos procesados")
+            st.dataframe(df, use_container_width=True)
+            st.divider()
+
+            st.subheader("📈 Estadísticas descriptivas")
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.write(f"**Número de datos:** {len(df)}")
+                avg_prices = df.groupby("Crypto")["Price"].mean().reset_index()
+                fig_avg = px.bar(
+                    avg_prices,
+                    x="Crypto",
+                    y="Price",
+                    title="Promedio de precios por criptomoneda",
+                    color_discrete_sequence=["red"]
+                )
+                st.plotly_chart(fig_avg, use_container_width=True)
+
+            with col2:
+                fig_dist = px.box(
+                    df,
+                    x="Crypto",
+                    y="Price",
+                    title="Distribución de precios por criptomoneda",
+                    color_discrete_sequence=["red"]
+                )
+                st.plotly_chart(fig_dist, use_container_width=True)
+
+            st.divider()
+
+            st.subheader("📉 Comparación de precios")
+            fig_comp = px.bar(
+                df,
+                x="Crypto",
+                y="Price",
+                color="Currency",
+                title="Precios por criptomoneda y moneda fiat",
+                color_discrete_sequence=["red"]
+            )
+            st.plotly_chart(fig_comp, use_container_width=True)
+
+        else:
+            st.error("Error al obtener datos de la API")
+    
+if __name__ == "__main__":
+    main()
